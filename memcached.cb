@@ -1,0 +1,139 @@
+import lib/net
+
+function main() {
+    var memcached = new Memcached();
+
+    // 设置数据
+    print memcached.set("test", "hello memecache");
+
+    // 取数据
+    print memcached.get("test");
+
+    // 设置数据5秒后失效
+    print memcached.set("test2", "hello memecache", 5);
+    print "等待6秒，使数据到期失效";
+    Sleep(6000);
+    // 取数据
+    print memcached.get("test2");
+
+    // 在后面追加数据
+    memcached.append("test", " append");
+    print memcached.get("test");
+
+    // 在前面追加数据
+    memcached.prepend("test", "prepend ");
+    print memcached.get("test");
+
+
+    // 清除所有数据
+    print memcached.flushAll();
+}
+
+class Memcached {
+    var _socketid;
+
+    function Memcached(host = "127.0.0.1", port = 11211) {
+        net::setblocking(_socketid, 1); // 设置阻塞模式
+        _socketid = net::socket(net::PF_INET, net::SOCK_STREAM);
+        var res = net::connect(_socketid, host, port);
+        if (res == -1) {
+            throw ("error", "onnection failure");
+        }
+    }
+
+    function runCommond(com, key, value, exptime) {
+        var com = sprintf("%s %s 0 %d %d\r\n", com, key, exptime, strlen(value));
+        var data = com + value + "\r\n";
+        var len = net::send(_socketid, data);
+        var byteArray = new ByteArray();
+        var rl = net::recv(_socketid, byteArray);
+        if (rl <= 0) {
+            print "recv err!";
+            return;
+        }
+        var result = byteArray.readString();
+        //成功会返回STORED\r\n
+        if (!strnicmp(result, "STORED", 6)) {
+            return true;
+        }
+        return false;
+    }
+
+    // add方法用于向memcache服务器添加一个要缓存的数据。
+    // 注意：如果memcache服务器中已经存在要存储的key，此时add方法调用失败。
+    function add(key, value, exptime = 0) {
+        return runCommond("add", key, value, exptime);
+    }
+
+    // set方法用于设置一个指定key的缓存内容，set方法是add方法和replace方法的集合体。
+    // 注意：存在key则替换，不存在则新增
+    function set(key, value, exptime = 0) {
+        return runCommond("set", key, value, exptime);
+    }
+
+    // 替换数据
+    function replace(key, value, exptime = 0) {
+        return runCommond("replace", key, value, exptime);
+    }
+
+    // 在现有的缓存数据后追加数据
+    function append(key, value, exptime = 0) {
+        return runCommond("append", key, value, exptime);
+    }
+
+    // 和append非常类似，但它的作用是在现有的数据前追加数据。
+    function prepend(key, value, exptime = 0) {
+        return runCommond("prepend", key, value, exptime);
+    }
+
+    // 获取数据
+    function get(key) {
+        var com = sprintf("get %s\r\n", key);
+        var len = net::send(_socketid, com);
+        var byteArray = new ByteArray();
+        var rl = net::recv(_socketid, byteArray);
+        if (rl <= 0) {
+            print "recv err!";
+            return;
+        }
+        var result = byteArray.readString();
+        if (!strnicmp(result, "END", 3)) {
+            return null;
+        }
+        var idx = strfind(result, "\r\n");
+        var idxEND = strrfind(result, "\r\n");
+        result = strget(result, idx + 2, idxEND - 5);
+        return result;
+    }
+
+    // 清除所有数据
+    function flushAll() {
+        var com = "flush_all\r\n";
+        var len = net::send(_socketid, com);
+        var byteArray = new ByteArray();
+        var rl = net::recv(_socketid, byteArray);
+        if (rl <= 0) {
+            print "recv err!";
+            return;
+        }
+        var result = byteArray.readString();
+        if (!strnicmp(result, "OK", 2)) {
+            return true;
+        }
+        return false;
+    }
+
+    // 查看memcache server 状态
+    function status() {
+        var com = "stats\r\n";
+        var len = net::send(_socketid, com);
+        var byteArray = new ByteArray();
+        var rl = net::recv(_socketid, byteArray);
+        if (rl <= 0) {
+            print "recv err!";
+            return;
+        }
+        var result = byteArray.readString();
+        print result;
+    }
+}
